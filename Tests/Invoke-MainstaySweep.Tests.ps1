@@ -195,4 +195,64 @@ Describe 'Invoke-MainstaySweep' {
             }
         }
     }
+
+    Context 'When redaction is requested with a salt' {
+
+        BeforeAll {
+            InModuleScope 'Mainstay' {
+                Mock Get-MainstayRepository {
+                    @([PSCustomObject]@{ FullName = 'jakehildreth/LocksmithPro'; Visibility = 'private' })
+                }
+                Mock Test-MainstayProtection { $true }
+                Mock Test-MainstayRepositoryHasBranch { $true }
+                Mock New-MainstayProtection { }
+            }
+        }
+
+        It 'Produces a marker that differs from the unsalted form' {
+            InModuleScope 'Mainstay' {
+                $salted = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -RedactPrivateName -RedactionSalt 'pepper'
+                $unsalted = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -RedactPrivateName -WarningAction SilentlyContinue
+                $salted.Repository | Should -Not -Be $unsalted.Repository
+            }
+        }
+
+        It 'Does not warn when a salt is supplied' {
+            InModuleScope 'Mainstay' {
+                $warnings = @()
+                Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -RedactPrivateName -RedactionSalt 'pepper' -WarningVariable warnings -WarningAction SilentlyContinue | Out-Null
+                $warnings | Should -BeNullOrEmpty
+            }
+        }
+    }
+
+    Context 'When redaction is requested without a salt' {
+
+        BeforeAll {
+            InModuleScope 'Mainstay' {
+                Mock Get-MainstayRepository {
+                    @([PSCustomObject]@{ FullName = 'jakehildreth/LocksmithPro'; Visibility = 'private' })
+                }
+                Mock Test-MainstayProtection { $true }
+                Mock Test-MainstayRepositoryHasBranch { $true }
+                Mock New-MainstayProtection { }
+            }
+        }
+
+        It 'Warns that the markers can be guessed' {
+            InModuleScope 'Mainstay' {
+                $warnings = @()
+                Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -RedactPrivateName -WarningVariable warnings -WarningAction SilentlyContinue | Out-Null
+                ($warnings -join ' ') | Should -Match 'salt'
+            }
+        }
+
+        It 'Does not warn when redaction is not requested' {
+            InModuleScope 'Mainstay' {
+                $warnings = @()
+                Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -WarningVariable warnings -WarningAction SilentlyContinue | Out-Null
+                $warnings | Should -BeNullOrEmpty
+            }
+        }
+    }
 }

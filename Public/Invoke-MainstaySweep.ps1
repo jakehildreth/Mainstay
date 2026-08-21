@@ -34,8 +34,11 @@ function Invoke-MainstaySweep {
         Replace private repository names in the output with a stable hashed
         marker. Use this when the output is written to a public log.
 
-    .OUTPUTS
-        System.Management.Automation.PSCustomObject
+    .PARAMETER RedactionSalt
+        A secret value mixed into the redaction hash so markers cannot be
+        reproduced from a repository name alone. Defaults to the MAINSTAY_SALT
+        environment variable. Redacting without one produces a warning, because
+        an unsalted marker can be matched by hashing likely names.
 
     .EXAMPLE
         Invoke-MainstaySweep -Owner 'octocat' -WhatIf
@@ -74,11 +77,20 @@ function Invoke-MainstaySweep {
         [string]$RulesetName = 'Protect default branch',
 
         [Parameter()]
-        [switch]$RedactPrivateName
+        [switch]$RedactPrivateName,
+
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$RedactionSalt = $env:MAINSTAY_SALT
     )
 
     begin {
         Write-Verbose "Starting sweep for '$Owner' using ruleset '$RulesetName'"
+
+        if ($RedactPrivateName.IsPresent -and [string]::IsNullOrEmpty($RedactionSalt)) {
+            Write-Warning ('Redacting without a salt. Repository names are short and predictable, ' +
+                'so the markers can be reproduced by guessing. Set MAINSTAY_SALT or pass -RedactionSalt.')
+        }
     }
 
     process {
@@ -99,7 +111,7 @@ function Invoke-MainstaySweep {
 
         foreach ($repository in $repositories) {
             $safeName = ConvertTo-MainstaySafeName -FullName $repository.FullName `
-                -Visibility $repository.Visibility -Redact:$RedactPrivateName
+                -Visibility $repository.Visibility -Redact:$RedactPrivateName -Salt $RedactionSalt
 
             $action = 'Failed'
             $reason = ''
