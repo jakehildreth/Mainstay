@@ -1,0 +1,98 @@
+name: Sweep
+
+on:
+  schedule:
+    # 06:00 UTC daily
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      whatIf:
+        description: 'Report only, make no changes'
+        type: boolean
+        default: false
+
+# Mainstay authenticates with MAINSTAY_TOKEN, never the workflow token,
+# so the workflow token is granted nothing.
+permissions: {}
+
+concurrency:
+  group: mainstay-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: Apply branch protection
+    runs-on: ubuntu-latest
+    env:
+      MAINSTAY_OWNER: jakehildreth
+      MAINSTAY_ORGS: gilmourltd,cliux-org
+      # gilmour.ltd is a private repo in a free organization. GitHub refuses
+      # branch protection there with a 403 regardless of mechanism, so it is
+      # excluded to stop every run reporting a failure that cannot be fixed
+      # from here. Remove it if the organization moves to a paid plan.
+      MAINSTAY_EXCLUDE: Locksmith,gilmour.ltd
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Run sweep
+        shell: pwsh
+        env:
+          MAINSTAY_TOKEN: ${{ secrets.MAINSTAY_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if ([string]::IsNullOrWhiteSpace($env:MAINSTAY_TOKEN)) {
+              throw 'MAINSTAY_TOKEN secret is not set.'
+          }
+
+          Import-Module ./Mainstay.psd1 -Force
+
+          $parameters = @{
+              Owner               = $env:MAINSTAY_OWNER
+              IncludeOrganization = $env:MAINSTAY_ORGS -split ','
+              ExcludeRepository   = $env:MAINSTAY_EXCLUDE -split ','
+              RedactPrivateName   = $true
+              ErrorAction         = 'Continue'
+          }
+
+          # This repository is public, so its Actions logs are world readable.
+          # RedactPrivateName above keeps private repository names out of them.
+          if ('${{ inputs.whatIf }}' -eq 'true') {
+              $parameters['WhatIf'] = $true
+          }
+
+          $results = @(Invoke-MainstaySweep @parameters)
+
+          $created = @($results | Where-Object { $_.Action -eq 'Created' })
+          $failed = @($results | Where-Object { $_.Action -eq 'Failed' })
+          $already = @($results | Where-Object { $_.Action -eq 'AlreadyProtected' })
+          $skipped = @($results | Where-Object { $_.Action -eq 'Skipped' })
+
+          $summary = @(
+              '## Mainstay sweep'
+              ''
+              "- Scanned: $($results.Count)"
+              "- Created: $($created.Count)"
+              "- Already protected: $($already.Count)"
+              "- Skipped: $($skipped.Count)"
+              "- Failed: $($failed.Count)"
+          )
+
+          if ($created.Count -gt 0) {
+              $summary += @('', '### Created', '')
+              $summary += $created | ForEach-Object { "- $($_.Repository)" }
+          }
+
+          if ($failed.Count -gt 0) {
+              $summary += @('', '### Failed', '')
+              $summary += $failed | ForEach-Object { "- $($_.Repository): $($_.Reason)" }
+          }
+
+          $summary -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+          $results | Format-Table -AutoSize | Out-String -Width 200 | Write-Host
+
+          if ($failed.Count -gt 0) {
+              Write-Host "::warning::$($failed.Count) repository/repositories could not be protected."
+          }
