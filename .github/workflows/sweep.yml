@@ -39,6 +39,9 @@ jobs:
         shell: pwsh
         env:
           MAINSTAY_TOKEN: ${{ secrets.MAINSTAY_TOKEN }}
+          # Optional. Without it the redaction markers can be reproduced by
+          # hashing likely repository names, and the sweep warns accordingly.
+          MAINSTAY_SALT: ${{ secrets.MAINSTAY_SALT }}
         run: |
           $ErrorActionPreference = 'Stop'
 

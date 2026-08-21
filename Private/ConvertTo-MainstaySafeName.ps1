@@ -12,6 +12,11 @@ function ConvertTo-MainstaySafeName {
         marker on every run. That allows a repeatedly failing repository to be
         correlated across runs without disclosing which repository it is.
 
+        Without a salt the hash is guessable. Repository names are short and
+        predictable, so anyone reading a public log can hash a list of likely
+        names and match them against the markers. Supplying a salt that is not
+        published removes that shortcut while keeping the marker stable.
+
     .PARAMETER FullName
         The owner/name identifier of the repository.
 
@@ -20,6 +25,10 @@ function ConvertTo-MainstaySafeName {
 
     .PARAMETER Redact
         Replace private repository names with a hashed marker.
+
+    .PARAMETER Salt
+        A secret value mixed into the hash so markers cannot be reproduced by
+        someone who only knows the repository name.
 
     .OUTPUTS
         System.String
@@ -41,7 +50,11 @@ function ConvertTo-MainstaySafeName {
         [string]$Visibility,
 
         [Parameter()]
-        [switch]$Redact
+        [switch]$Redact,
+
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$Salt
     )
 
     process {
@@ -51,7 +64,7 @@ function ConvertTo-MainstaySafeName {
 
         $algorithm = [System.Security.Cryptography.SHA256]::Create()
         try {
-            $nameBytes = [System.Text.Encoding]::UTF8.GetBytes($FullName.ToLowerInvariant())
+            $nameBytes = [System.Text.Encoding]::UTF8.GetBytes("$Salt$($FullName.ToLowerInvariant())")
             $hashBytes = $algorithm.ComputeHash($nameBytes)
         } finally {
             $algorithm.Dispose()

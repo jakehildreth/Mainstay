@@ -54,16 +54,30 @@ Invoke-MainstaySweep -Token $token -Owner 'yourname' `
 Keep private repository names out of a public log:
 
 ```powershell
-Invoke-MainstaySweep -Token $token -Owner 'yourname' -RedactPrivateName
+Invoke-MainstaySweep -Token $token -Owner 'yourname' -RedactPrivateName -RedactionSalt $salt
 ```
 
 Private names become a stable marker such as `<private:9f2a41c8>`. The same repository produces the same marker every run, so a repeatedly failing repository can be tracked across runs without disclosing which one it is.
+
+### Why the salt matters
+
+Without a salt the marker is a plain hash of the repository name. Repository names are short and predictable, so anyone reading a public log can hash a list of likely names and match them against the markers. The redaction stops casual reading, not a motivated guesser.
+
+A salt that is not published removes that shortcut. Markers stay stable run to run, so correlation still works, but they cannot be reproduced from a name alone.
+
+`-RedactionSalt` defaults to the `MAINSTAY_SALT` environment variable. Redacting without one is allowed and produces a warning.
+
+Generate one with:
+
+```powershell
+[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+```
 
 ## Running it on a schedule
 
 `.github/workflows/sweep.yml` runs the sweep daily at 06:00 UTC, and on demand through **Actions > Sweep > Run workflow**. The manual run takes a `whatIf` input for a dry run.
 
-Configure it with the `env` block at the top of the job, and store the token as a repository secret named `MAINSTAY_TOKEN`.
+Configure it with the `env` block at the top of the job. Store the token as a repository secret named `MAINSTAY_TOKEN`, and optionally a salt named `MAINSTAY_SALT`.
 
 > This repository is public, which means its Actions logs are readable by anyone. The workflow passes `-RedactPrivateName` for that reason. Remove it only if the repository is private.
 
