@@ -25,9 +25,9 @@ Targeting uses `~DEFAULT_BRANCH` rather than a literal branch name, so repositor
 ## Requirements
 
 - PowerShell 7.4+ (this runs in GitHub Actions, where `pwsh` is preinstalled)
-- A fine grained personal access token with **Administration: write** on the repositories you want swept
+- A GitHub App installed on every account you want swept, granted **Administration: write** and **Contents: read** on those repositories. The workflow mints a short lived installation token from the App for each run.
 
-The workflow `GITHUB_TOKEN` cannot do this. It is scoped to the repository containing the workflow, so it cannot administer any other repository.
+The workflow `GITHUB_TOKEN` cannot do this. It is scoped to the repository containing the workflow, so it cannot administer any other repository. The App's private key is stored once as a repository secret and never expires, so there is no token to rotate by hand.
 
 ## Quick start
 
@@ -40,10 +40,10 @@ Import-Module ./Mainstay.psd1 -Force
 $env:MAINSTAY_TOKEN = gh auth token
 
 # See what would change, without changing anything
-Invoke-MainstaySweep -Owner 'yourname' -WhatIf
+Invoke-MainstaySweep -Owner 'yourname' -OwnerType User -WhatIf
 
 # Apply
-Invoke-MainstaySweep -Owner 'yourname'
+Invoke-MainstaySweep -Owner 'yourname' -OwnerType User
 ```
 
 `-Token` defaults to the `MAINSTAY_TOKEN` environment variable, so setting it once per session means the parameter can be omitted. Pass `-Token` explicitly if you would rather not set the variable.
@@ -52,29 +52,35 @@ Leave `-WhatIf` on unless you actually intend to create rulesets.
 
 ## Credentials
 
-Two separate tokens are in play. They do the same job in different places, and mixing them up is the easiest way to confuse yourself later.
+Three credentials are in play. They do the same job in different places, and mixing them up is the easiest way to confuse yourself later.
 
 | | Used by | Scope | Notes |
 | --- | --- | --- | --- |
 | `gh auth token` | You, locally | Broad. Whatever your `gh` login holds | Convenient for local runs. Rotates when you re-authenticate |
-| `MAINSTAY_TOKEN` secret | The workflow only | Fine grained: Administration write, Contents read | GitHub will not read it back. If you lose the value, mint a new one |
+| App private key secret | The workflow, to mint tokens | Grants only what the App holds: Administration write, Contents read | Stored once as `MAINSTAY_APP_PRIVATE_KEY`. Never expires. See the compromise runbook in `docs/runbooks/` |
+| Installation token | The sweep itself, per run | One owner, one hour | Minted fresh by `create-github-app-token` each run. Never stored |
 
 `Contents: read` is not optional. Mainstay checks whether a repository has any commits before protecting it, and listing branches needs that permission. Without it, every repository that still needs a ruleset fails with `403`, and the sweep silently never creates anything.
 
 ## Examples
-
-Sweep an account and two organizations, leaving one repository alone:
+Sweep your personal account, leaving one repository alone:
 
 ```powershell
-Invoke-MainstaySweep -Owner 'yourname' `
-    -IncludeOrganization 'org-one', 'org-two' `
-    -ExcludeRepository 'LegacyThing'
+Invoke-MainstaySweep -Owner 'yourname' -OwnerType User -ExcludeRepository 'LegacyThing'
 ```
+
+Sweep one organization:
+
+```powershell
+Invoke-MainstaySweep -Owner 'org-one' -OwnerType Org
+```
+
+The sweep covers a single account per call, because an installation token is scoped to one account. The scheduled workflow calls it once per account through a matrix.
 
 Keep private repository names out of a public log:
 
 ```powershell
-Invoke-MainstaySweep -Owner 'yourname' -RedactPrivateName -RedactionSalt $salt
+Invoke-MainstaySweep -Owner 'yourname' -OwnerType User -RedactPrivateName -RedactionSalt $salt
 ```
 
 Private names become a stable marker such as `<private:9f2a41c8>`. The same repository produces the same marker every run, so a repeatedly failing repository can be tracked across runs without disclosing which one it is.
@@ -101,7 +107,7 @@ That is not a problem, because you never need the salt for it. To find out which
 
 ```powershell
 $env:MAINSTAY_TOKEN = gh auth token
-Invoke-MainstaySweep -Owner 'yourname' -WhatIf
+Invoke-MainstaySweep -Owner 'yourname' -OwnerType User -WhatIf
 ```
 
 Redaction exists to protect the public Actions log. It was never meant to hide anything from you.
@@ -112,13 +118,22 @@ Setting `MAINSTAY_SALT` also invalidates every marker published before it. Older
 
 `.github/workflows/sweep.yml` runs the sweep daily at 06:00 UTC, and on demand through **Actions > Sweep > Run workflow**. The manual run takes a `whatIf` input for a dry run.
 
-Configure it with the `env` block at the top of the job. Store the token as a repository secret named `MAINSTAY_TOKEN`, and optionally a salt named `MAINSTAY_SALT`.
+The workflow runs one job per account through a matrix. Each job mints a one hour installation token for that account with `create-github-app-token`, then sweeps only that account. The accounts, their type (`User` or `Org`), and any per-account exclusions are the matrix `include` rows at the top of the job.
 
-Setting the secrets:
+Two secrets and one variable configure the App:
+
+| Name | Kind | Holds |
+| --- | --- | --- |
+| `MAINSTAY_APP_CLIENT_ID` | variable | The App's client ID |
+| `MAINSTAY_APP_PRIVATE_KEY` | secret | The App's private key. Never expires |
+| `MAINSTAY_SALT` | secret | Optional redaction salt |
+
+Setting them:
 
 ```bash
-gh secret set MAINSTAY_TOKEN --repo owner/Mainstay
-gh secret set MAINSTAY_SALT  --repo owner/Mainstay
+gh variable set MAINSTAY_APP_CLIENT_ID --repo owner/Mainstay --body '<client-id>'
+gh secret set MAINSTAY_APP_PRIVATE_KEY --repo owner/Mainstay < path/to/private-key.pem
+gh secret set MAINSTAY_SALT          --repo owner/Mainstay
 ```
 
 Triggering a dry run and reading the result:
@@ -129,7 +144,7 @@ gh run watch --repo owner/Mainstay
 gh run view --repo owner/Mainstay --web
 ```
 
-A run that reports every repository as `Failed` usually means the PAT is dead or missing a permission: the workflow now treats all-repositories-failed as an authentication problem, exits non-zero, and GitHub emails you. A partial failure — some repositories succeed, a few report `Failed` — stays green, because that is a per-repository cause such as a free private plan. A run that fails immediately with `MAINSTAY_TOKEN secret is not set.` means the secret name does not match, which is case sensitive.
+A job that reports every repository for its account as `Failed` usually means the App was uninstalled or its key revoked: the workflow treats all-repositories-failed as an authentication problem, exits non-zero, and GitHub emails you. A partial failure — some repositories succeed, a few report `Failed` — stays green, because that is a per-repository cause such as a free private plan. A job that fails at the token minting step means the App is not installed on that account or the key is wrong.
 
 > This repository is public, which means its Actions logs are readable by anyone. The workflow passes `-RedactPrivateName` for that reason. Remove it only if the repository is private.
 
