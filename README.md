@@ -129,7 +129,7 @@ gh run watch --repo owner/Mainstay
 gh run view --repo owner/Mainstay --web
 ```
 
-A run that reports every repository as `Failed` with `403` usually means the PAT is missing a permission. A run that fails immediately with `MAINSTAY_TOKEN secret is not set.` means the secret name does not match, which is case sensitive.
+A run that reports every repository as `Failed` usually means the PAT is dead or missing a permission: the workflow now treats all-repositories-failed as an authentication problem, exits non-zero, and GitHub emails you. A partial failure — some repositories succeed, a few report `Failed` — stays green, because that is a per-repository cause such as a free private plan. A run that fails immediately with `MAINSTAY_TOKEN secret is not set.` means the secret name does not match, which is case sensitive.
 
 > This repository is public, which means its Actions logs are readable by anyone. The workflow passes `-RedactPrivateName` for that reason. Remove it only if the repository is private.
 

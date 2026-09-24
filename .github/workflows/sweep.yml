@@ -99,3 +99,12 @@ jobs:
           if ($failed.Count -gt 0) {
               Write-Host "::warning::$($failed.Count) repository/repositories could not be protected."
           }
+
+          # Auth-shaped failure: every repository failed, so the problem is the
+          # credential (dead/expired MAINSTAY_TOKEN) or the API, not any one
+          # repo. A token minted each run cannot die mid-sweep, so all-failed is
+          # the signal. Exit non-zero so the run goes red and GitHub emails.
+          if ($results.Count -gt 0 -and $failed.Count -eq $results.Count) {
+              Write-Host "::error::Every repository failed. MAINSTAY_TOKEN is likely expired or missing a permission."
+              exit 1
+          }
