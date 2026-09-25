@@ -58,24 +58,24 @@ function Get-MainstayRepository {
     )
 
     process {
-        # A user owner is listed from the authenticated endpoint user/repos,
-        # scoped to repos the token owner owns. users/{owner}/repos is wrong for
-        # a user: it omits private repositories for any caller that is not the
-        # owner, and under an App installation token the caller is the
-        # installation, so user/repos returns the installation's own repos.
-        # An organization owner is listed from orgs/{owner}/repos, which has no
-        # such gap.
-        $source = switch ($OwnerType) {
-            'User' { "user/repos?type=owner&per_page=100" }
-            'Org'  { "orgs/$Owner/repos?per_page=100" }
+        # A user owner is listed from the App installation endpoint
+        # installation/repositories. user/repos is wrong: GitHub Apps cannot call
+        # it (403 Resource not accessible by integration), and users/{owner}/repos
+        # omits private repositories for any caller that is not the owner.
+        # installation/repositories returns every repository the installation can
+        # see, private included. An organization owner is listed from
+        # orgs/{owner}/repos, which has no such gap.
+        if ($OwnerType -eq 'Org') {
+            $repositories = Invoke-MainstayApi -Token $Token -Path "orgs/$Owner/repos?per_page=100" -Paginate
+        } else {
+            # Invoke-MainstayApi unwraps the 'repositories' member this endpoint uses.
+            $repositories = Invoke-MainstayApi -Token $Token -Path 'installation/repositories?per_page=100' -Paginate
         }
 
         $excluded = @{}
         foreach ($name in $ExcludeRepository) {
             $excluded[$name.ToLowerInvariant()] = $true
         }
-
-        $repositories = Invoke-MainstayApi -Token $Token -Path $source -Paginate
 
         foreach ($repository in $repositories) {
             if ($repository.fork) {
@@ -93,7 +93,15 @@ function Get-MainstayRepository {
                 continue
             }
 
-            if (-not $repository.permissions.admin) {
+            # The admin check only applies to the Org listing, where
+            # permissions.admin reflects the caller's rights on that repository.
+            # The App path (installation/repositories) is already scoped to what
+            # the installation may administer — it reports permissions.admin as
+            # false because an installation token has no 'admin' concept, so the
+            # check would wrongly drop every repository there.
+            if ($OwnerType -eq 'Org' -and
+                $null -ne $repository.permissions -and
+                -not $repository.permissions.admin) {
                 Write-Verbose "Skipping $($repository.full_name): not an admin"
                 continue
             }
