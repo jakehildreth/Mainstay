@@ -5,6 +5,27 @@ BeforeAll {
 
 Describe 'Invoke-MainstaySweep' {
 
+    Context 'When sweeping one owner' {
+
+        BeforeAll {
+            InModuleScope 'Mainstay' {
+                Mock Get-MainstayRepository { @() }
+                Mock Test-MainstayProtection { $true }
+                Mock Test-MainstayRepositoryHasBranch { $true }
+                Mock New-MainstayProtection { }
+            }
+        }
+
+        It 'Passes Owner and OwnerType through to enumeration' {
+            InModuleScope 'Mainstay' {
+                Invoke-MainstaySweep -Token 'x' -Owner 'gilmourltd' -OwnerType Org | Out-Null
+                Should -Invoke Get-MainstayRepository -Exactly 1 -ParameterFilter {
+                    $Owner -eq 'gilmourltd' -and $OwnerType -eq 'Org'
+                }
+            }
+        }
+    }
+
     Context 'When a repository already has the canonical ruleset' {
 
         BeforeAll {
@@ -20,21 +41,21 @@ Describe 'Invoke-MainstaySweep' {
 
         It 'Does not create a second ruleset' {
             InModuleScope 'Mainstay' {
-                Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' | Out-Null
+                Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -OwnerType User | Out-Null
                 Should -Invoke New-MainstayProtection -Exactly 0
             }
         }
 
         It 'Reports the repository as already protected' {
             InModuleScope 'Mainstay' {
-                $result = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth'
+                $result = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -OwnerType User
                 $result.Action | Should -Be 'AlreadyProtected'
             }
         }
 
         It 'Does not spend an API call checking for branches' {
             InModuleScope 'Mainstay' {
-                Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' | Out-Null
+                Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -OwnerType User | Out-Null
                 Should -Invoke Test-MainstayRepositoryHasBranch -Exactly 0
             }
         }
@@ -55,14 +76,14 @@ Describe 'Invoke-MainstaySweep' {
 
         It 'Creates the ruleset exactly once' {
             InModuleScope 'Mainstay' {
-                Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' | Out-Null
+                Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -OwnerType User | Out-Null
                 Should -Invoke New-MainstayProtection -Exactly 1
             }
         }
 
         It 'Reports the repository as created' {
             InModuleScope 'Mainstay' {
-                $result = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth'
+                $result = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -OwnerType User
                 $result.Action | Should -Be 'Created'
             }
         }
@@ -83,21 +104,21 @@ Describe 'Invoke-MainstaySweep' {
 
         It 'Does not create a ruleset that would obstruct the first push' {
             InModuleScope 'Mainstay' {
-                Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' | Out-Null
+                Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -OwnerType User | Out-Null
                 Should -Invoke New-MainstayProtection -Exactly 0
             }
         }
 
         It 'Reports the repository as skipped' {
             InModuleScope 'Mainstay' {
-                $result = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth'
+                $result = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -OwnerType User
                 $result.Action | Should -Be 'Skipped'
             }
         }
 
         It 'Gives the empty repository as the reason' {
             InModuleScope 'Mainstay' {
-                $result = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth'
+                $result = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -OwnerType User
                 $result.Reason | Should -Match 'no commits'
             }
         }
@@ -118,7 +139,7 @@ Describe 'Invoke-MainstaySweep' {
 
         It 'Does not create the ruleset' {
             InModuleScope 'Mainstay' {
-                Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -WhatIf | Out-Null
+                Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -OwnerType User -WhatIf | Out-Null
                 Should -Invoke New-MainstayProtection -Exactly 0
             }
         }
@@ -139,14 +160,14 @@ Describe 'Invoke-MainstaySweep' {
 
         It 'Reports the failure rather than terminating the sweep' {
             InModuleScope 'Mainstay' {
-                $result = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -ErrorAction SilentlyContinue
+                $result = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -OwnerType User -ErrorAction SilentlyContinue
                 $result.Action | Should -Be 'Failed'
             }
         }
 
         It 'Captures the failure reason' {
             InModuleScope 'Mainstay' {
-                $result = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -ErrorAction SilentlyContinue
+                $result = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -OwnerType User -ErrorAction SilentlyContinue
                 $result.Reason | Should -Match 'Upgrade to GitHub Pro'
             }
         }
@@ -159,7 +180,7 @@ Describe 'Invoke-MainstaySweep' {
                         [PSCustomObject]@{ FullName = 'jakehildreth/Other'; Visibility = 'public' }
                     )
                 }
-                $result = @(Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -ErrorAction SilentlyContinue)
+                $result = @(Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -OwnerType User -ErrorAction SilentlyContinue)
                 $result | Should -HaveCount 2
             }
         }
@@ -183,14 +204,14 @@ Describe 'Invoke-MainstaySweep' {
 
         It 'Does not emit the name of a private repository' {
             InModuleScope 'Mainstay' {
-                $result = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -RedactPrivateName
+                $result = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -OwnerType User -RedactPrivateName
                 ($result | ForEach-Object { $_.Repository }) -join ' ' | Should -Not -Match 'LocksmithPro'
             }
         }
 
         It 'Still emits the name of a public repository' {
             InModuleScope 'Mainstay' {
-                $result = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -RedactPrivateName
+                $result = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -OwnerType User -RedactPrivateName
                 ($result | ForEach-Object { $_.Repository }) | Should -Contain 'jakehildreth/Locksmith2'
             }
         }
@@ -211,8 +232,8 @@ Describe 'Invoke-MainstaySweep' {
 
         It 'Produces a marker that differs from the unsalted form' {
             InModuleScope 'Mainstay' {
-                $salted = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -RedactPrivateName -RedactionSalt 'pepper'
-                $unsalted = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -RedactPrivateName -WarningAction SilentlyContinue
+                $salted = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -OwnerType User -RedactPrivateName -RedactionSalt 'pepper'
+                $unsalted = Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -OwnerType User -RedactPrivateName -WarningAction SilentlyContinue
                 $salted.Repository | Should -Not -Be $unsalted.Repository
             }
         }
@@ -220,7 +241,7 @@ Describe 'Invoke-MainstaySweep' {
         It 'Does not warn when a salt is supplied' {
             InModuleScope 'Mainstay' {
                 $warnings = @()
-                Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -RedactPrivateName -RedactionSalt 'pepper' -WarningVariable warnings -WarningAction SilentlyContinue | Out-Null
+                Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -OwnerType User -RedactPrivateName -RedactionSalt 'pepper' -WarningVariable warnings -WarningAction SilentlyContinue | Out-Null
                 $warnings | Should -BeNullOrEmpty
             }
         }
@@ -242,7 +263,7 @@ Describe 'Invoke-MainstaySweep' {
         It 'Warns that the markers can be guessed' {
             InModuleScope 'Mainstay' {
                 $warnings = @()
-                Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -RedactPrivateName -WarningVariable warnings -WarningAction SilentlyContinue | Out-Null
+                Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -OwnerType User -RedactPrivateName -WarningVariable warnings -WarningAction SilentlyContinue | Out-Null
                 ($warnings -join ' ') | Should -Match 'salt'
             }
         }
@@ -250,7 +271,7 @@ Describe 'Invoke-MainstaySweep' {
         It 'Does not warn when redaction is not requested' {
             InModuleScope 'Mainstay' {
                 $warnings = @()
-                Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -WarningVariable warnings -WarningAction SilentlyContinue | Out-Null
+                Invoke-MainstaySweep -Token 'x' -Owner 'jakehildreth' -OwnerType User -WarningVariable warnings -WarningAction SilentlyContinue | Out-Null
                 $warnings | Should -BeNullOrEmpty
             }
         }

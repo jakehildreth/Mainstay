@@ -42,7 +42,7 @@ Describe 'Get-MainstayRepository' {
                             default_branch = 'main'; permissions = @{ admin = $false }
                         }
                     )
-                } -ParameterFilter { $Path -like 'user/repos*' }
+                } -ParameterFilter { $Path -like 'users/jakehildreth/repos*' }
 
                 Mock Invoke-MainstayApi { @() }
             }
@@ -50,67 +50,92 @@ Describe 'Get-MainstayRepository' {
 
         It 'Includes an eligible source repository' {
             InModuleScope 'Mainstay' {
-                $result = Get-MainstayRepository -Token 'x' -Owner 'jakehildreth'
+                $result = Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -OwnerType User
                 $result.FullName | Should -Contain 'jakehildreth/Locksmith2'
+                $result.FullName | Should -Contain 'jakehildreth/Locksmith'
             }
         }
 
         It 'Excludes repositories named in ExcludeRepository' {
             InModuleScope 'Mainstay' {
-                $result = Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -ExcludeRepository 'Locksmith'
+                $result = Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -OwnerType User -ExcludeRepository 'Locksmith'
                 $result.FullName | Should -Not -Contain 'jakehildreth/Locksmith'
             }
         }
 
         It 'Excludes forks' {
             InModuleScope 'Mainstay' {
-                $result = Get-MainstayRepository -Token 'x' -Owner 'jakehildreth'
+                $result = Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -OwnerType User
                 $result.FullName | Should -Not -Contain 'jakehildreth/sliver'
             }
         }
 
         It 'Excludes archived repositories' {
             InModuleScope 'Mainstay' {
-                $result = Get-MainstayRepository -Token 'x' -Owner 'jakehildreth'
+                $result = Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -OwnerType User
                 $result.FullName | Should -Not -Contain 'jakehildreth/OldThing'
             }
         }
 
         It 'Excludes repositories with no default branch' {
             InModuleScope 'Mainstay' {
-                $result = Get-MainstayRepository -Token 'x' -Owner 'jakehildreth'
+                $result = Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -OwnerType User
                 $result.FullName | Should -Not -Contain 'jakehildreth/ADCStencil'
             }
         }
 
         It 'Excludes repositories where the caller is not an admin' {
             InModuleScope 'Mainstay' {
-                $result = Get-MainstayRepository -Token 'x' -Owner 'jakehildreth'
+                $result = Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -OwnerType User
                 $result.FullName | Should -Not -Contain 'jakehildreth/NotMine'
             }
         }
 
         It 'Matches ExcludeRepository without regard to case' {
             InModuleScope 'Mainstay' {
-                $result = Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -ExcludeRepository 'locksmith'
+                $result = Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -OwnerType User -ExcludeRepository 'locksmith'
                 $result.FullName | Should -Not -Contain 'jakehildreth/Locksmith'
             }
         }
 
         It 'Reports visibility so downstream redaction can act on it' {
             InModuleScope 'Mainstay' {
-                $result = Get-MainstayRepository -Token 'x' -Owner 'jakehildreth'
-                ($result | Where-Object { $_.FullName -eq 'jakehildreth/Locksmith2' }).Visibility |
-                    Should -Be 'public'
+                $result = Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -OwnerType User |
+                    Where-Object { $_.Name -eq 'Locksmith2' }
+                $result.Visibility | Should -Be 'public'
             }
         }
     }
 
-    Context 'When organizations are requested' {
+    Context 'When the owner is a user account' {
 
         BeforeAll {
             InModuleScope 'Mainstay' {
-                Mock Invoke-MainstayApi { @() } -ParameterFilter { $Path -like 'user/repos*' }
+                Mock Invoke-MainstayApi { @() } -ParameterFilter { $Path -like 'users/jakehildreth/repos*' }
+                Mock Invoke-MainstayApi { throw "unexpected path: $Path" }
+            }
+        }
+
+        It 'Queries the user repos endpoint for that owner' {
+            InModuleScope 'Mainstay' {
+                Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -OwnerType User | Out-Null
+                Should -Invoke Invoke-MainstayApi -Exactly 1 -ParameterFilter { $Path -like 'users/jakehildreth/repos*' }
+            }
+        }
+
+        It 'Never queries the authenticated-user or org endpoints' {
+            InModuleScope 'Mainstay' {
+                Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -OwnerType User | Out-Null
+                Should -Invoke Invoke-MainstayApi -Exactly 0 -ParameterFilter { $Path -like 'user/repos*' }
+                Should -Invoke Invoke-MainstayApi -Exactly 0 -ParameterFilter { $Path -like 'orgs/*' }
+            }
+        }
+    }
+
+    Context 'When the owner is an organization' {
+
+        BeforeAll {
+            InModuleScope 'Mainstay' {
                 Mock Invoke-MainstayApi {
                     @(
                         [PSCustomObject]@{
@@ -120,21 +145,23 @@ Describe 'Get-MainstayRepository' {
                         }
                     )
                 } -ParameterFilter { $Path -like 'orgs/gilmourltd/repos*' }
-                Mock Invoke-MainstayApi { @() }
+                Mock Invoke-MainstayApi { throw "unexpected path: $Path" }
             }
         }
 
-        It 'Includes repositories from a requested organization' {
+        It 'Queries the org repos endpoint and returns its repositories' {
             InModuleScope 'Mainstay' {
-                $result = Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -IncludeOrganization 'gilmourltd'
+                $result = Get-MainstayRepository -Token 'x' -Owner 'gilmourltd' -OwnerType Org
+                Should -Invoke Invoke-MainstayApi -Exactly 1 -ParameterFilter { $Path -like 'orgs/gilmourltd/repos*' }
                 $result.FullName | Should -Contain 'gilmourltd/product'
             }
         }
 
-        It 'Does not query organizations that were not requested' {
+        It 'Never queries the user or authenticated-user endpoints' {
             InModuleScope 'Mainstay' {
-                Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' | Out-Null
-                Should -Invoke Invoke-MainstayApi -Exactly 0 -ParameterFilter { $Path -like 'orgs/*' }
+                Get-MainstayRepository -Token 'x' -Owner 'gilmourltd' -OwnerType Org | Out-Null
+                Should -Invoke Invoke-MainstayApi -Exactly 0 -ParameterFilter { $Path -like 'users/*' }
+                Should -Invoke Invoke-MainstayApi -Exactly 0 -ParameterFilter { $Path -like 'user/repos*' }
             }
         }
     }

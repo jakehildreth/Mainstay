@@ -4,14 +4,19 @@ function Invoke-MainstaySweep {
         Applies the canonical branch protection ruleset to every eligible repository.
 
     .DESCRIPTION
-        Enumerates eligible repositories and creates the canonical ruleset on any
-        that lack it. Repositories that already carry an active ruleset of that
-        name are left untouched, so the sweep is safe to run repeatedly.
+        Enumerates the eligible repositories of a single account and creates the
+        canonical ruleset on any that lack it. Repositories that already carry an
+        active ruleset of that name are left untouched, so the sweep is safe to
+        run repeatedly.
 
         The sweep is idempotent only. It never edits or removes an existing
         ruleset, which means a deliberate per repository exception survives.
 
         A failure on one repository is reported and the sweep continues.
+
+        One account is swept per call, because the GitHub App installation token
+        is scoped to a single account. To cover several accounts, call the sweep
+        once per account, as the workflow matrix does.
 
     .PARAMETER Token
         A GitHub token with administration permission on the target repositories.
@@ -20,9 +25,10 @@ function Invoke-MainstaySweep {
     .PARAMETER Owner
         The account login whose repositories are swept.
 
-    .PARAMETER IncludeOrganization
-        Organizations to sweep in addition to the owner account. No organization
-        is touched unless it is named here.
+    .PARAMETER OwnerType
+        Whether Owner is a user account or an organization. This selects the
+        enumeration endpoint, because the two list repositories from different
+        paths.
 
     .PARAMETER ExcludeRepository
         Repository names to leave alone. Matched without regard to case.
@@ -41,14 +47,14 @@ function Invoke-MainstaySweep {
         an unsalted marker can be matched by hashing likely names.
 
     .EXAMPLE
-        Invoke-MainstaySweep -Owner 'octocat' -WhatIf
+        Invoke-MainstaySweep -Owner 'octocat' -OwnerType User -WhatIf
 
         Reports what the sweep would create without changing anything.
 
     .EXAMPLE
-        Invoke-MainstaySweep -Owner 'octocat' -IncludeOrganization 'octo-co' -RedactPrivateName
+        Invoke-MainstaySweep -Owner 'octo-co' -OwnerType Org -RedactPrivateName
 
-        Sweeps the account and one organization, keeping private names out of the output.
+        Sweeps one organization, keeping private names out of the output.
 
     .NOTES
         Requires a fine grained token with Administration write permission.
@@ -66,8 +72,9 @@ function Invoke-MainstaySweep {
         [ValidateNotNullOrEmpty()]
         [string]$Owner,
 
-        [Parameter()]
-        [string[]]$IncludeOrganization,
+        [Parameter(Mandatory)]
+        [ValidateSet('User', 'Org')]
+        [string]$OwnerType,
 
         [Parameter()]
         [string[]]$ExcludeRepository,
@@ -95,12 +102,9 @@ function Invoke-MainstaySweep {
 
     process {
         $repositoryParameters = @{
-            Token = $Token
-            Owner = $Owner
-        }
-
-        if ($PSBoundParameters.ContainsKey('IncludeOrganization')) {
-            $repositoryParameters['IncludeOrganization'] = $IncludeOrganization
+            Token     = $Token
+            Owner     = $Owner
+            OwnerType = $OwnerType
         }
 
         if ($PSBoundParameters.ContainsKey('ExcludeRepository')) {

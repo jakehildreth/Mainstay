@@ -11,8 +11,8 @@ on:
         type: boolean
         default: false
 
-# Mainstay authenticates with MAINSTAY_TOKEN, never the workflow token,
-# so the workflow token is granted nothing.
+# Mainstay authenticates as a GitHub App installation, never the workflow
+# token, so the workflow token is granted nothing.
 permissions: {}
 
 concurrency:
@@ -21,42 +21,68 @@ concurrency:
 
 jobs:
   sweep:
-    name: Apply branch protection
+    name: Sweep ${{ matrix.owner }}
     runs-on: ubuntu-latest
-    env:
-      MAINSTAY_OWNER: jakehildreth
-      MAINSTAY_ORGS: gilmourltd,cliux-org
-      # gilmour.ltd is a private repo in a free organization. GitHub refuses
-      # branch protection there with a 403 regardless of mechanism, so it is
-      # excluded to stop every run reporting a failure that cannot be fixed
-      # from here. Remove it if the organization moves to a paid plan.
-      MAINSTAY_EXCLUDE: Locksmith,gilmour.ltd
+    strategy:
+      # One owner's failure must not stop the others.
+      fail-fast: false
+      matrix:
+        include:
+          - owner: jakehildreth
+            type: User
+            exclude: Locksmith
+          - owner: gilmourltd
+            type: Org
+            # gilmour.ltd is a private repo in a free organization. GitHub
+            # refuses branch protection there with a 403 regardless of
+            # mechanism, so it is excluded to stop every run reporting a
+            # failure that cannot be fixed from here.
+            exclude: gilmour.ltd
+          - owner: cliux-org
+            type: Org
+            exclude: ''
     steps:
       - name: Check out
         uses: actions/checkout@v5
 
+      # Mint a one-hour installation token scoped to this owner. The App's
+      # private key never expires, so rotation never depends on a human.
+      - name: Mint installation token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.MAINSTAY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.MAINSTAY_APP_PRIVATE_KEY }}
+          owner: ${{ matrix.owner }}
+
       - name: Run sweep
         shell: pwsh
         env:
-          MAINSTAY_TOKEN: ${{ secrets.MAINSTAY_TOKEN }}
+          MAINSTAY_TOKEN: ${{ steps.app-token.outputs.token }}
           # Optional. Without it the redaction markers can be reproduced by
           # hashing likely repository names, and the sweep warns accordingly.
           MAINSTAY_SALT: ${{ secrets.MAINSTAY_SALT }}
+          MAINSTAY_OWNER: ${{ matrix.owner }}
+          MAINSTAY_OWNERTYPE: ${{ matrix.type }}
+          MAINSTAY_EXCLUDE: ${{ matrix.exclude }}
         run: |
           $ErrorActionPreference = 'Stop'
 
           if ([string]::IsNullOrWhiteSpace($env:MAINSTAY_TOKEN)) {
-              throw 'MAINSTAY_TOKEN secret is not set.'
+              throw 'Installation token was not minted.'
           }
 
           Import-Module ./Mainstay.psd1 -Force
 
           $parameters = @{
-              Owner               = $env:MAINSTAY_OWNER
-              IncludeOrganization = $env:MAINSTAY_ORGS -split ','
-              ExcludeRepository   = $env:MAINSTAY_EXCLUDE -split ','
-              RedactPrivateName   = $true
-              ErrorAction         = 'Continue'
+              Owner             = $env:MAINSTAY_OWNER
+              OwnerType         = $env:MAINSTAY_OWNERTYPE
+              RedactPrivateName = $true
+              ErrorAction       = 'Continue'
+          }
+
+          if (-not [string]::IsNullOrWhiteSpace($env:MAINSTAY_EXCLUDE)) {
+              $parameters['ExcludeRepository'] = $env:MAINSTAY_EXCLUDE -split ','
           }
 
           # This repository is public, so its Actions logs are world readable.
@@ -75,6 +101,7 @@ jobs:
           $summary = @(
               '## Mainstay sweep'
               ''
+              "- Owner: $env:MAINSTAY_OWNER ($env:MAINSTAY_OWNERTYPE)"
               "- Scanned: $($results.Count)"
               "- Created: $($created.Count)"
               "- Already protected: $($already.Count)"
@@ -101,10 +128,10 @@ jobs:
           }
 
           # Auth-shaped failure: every repository failed, so the problem is the
-          # credential (dead/expired MAINSTAY_TOKEN) or the API, not any one
-          # repo. A token minted each run cannot die mid-sweep, so all-failed is
-          # the signal. Exit non-zero so the run goes red and GitHub emails.
+          # credential (a revoked App key or uninstalled App) or the API, not any
+          # one repo. A token minted each run cannot die mid-sweep, so all-failed
+          # is the signal. Exit non-zero so the run goes red and GitHub emails.
           if ($results.Count -gt 0 -and $failed.Count -eq $results.Count) {
-              Write-Host "::error::Every repository failed. MAINSTAY_TOKEN is likely expired or missing a permission."
+              Write-Host "::error::Every repository failed for $env:MAINSTAY_OWNER. The App key was likely revoked or the App uninstalled."
               exit 1
           }
