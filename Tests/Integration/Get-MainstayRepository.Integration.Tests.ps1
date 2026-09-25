@@ -13,6 +13,7 @@ BeforeAll {
     $script:Enabled = $env:MAINSTAY_INTEGRATION -eq '1'
     $script:AppClientId = $env:MAINSTAY_APP_CLIENT_ID
     $script:AppPrivateKey = $env:MAINSTAY_APP_PRIVATE_KEY
+    $VerbosePreference = 'Continue'
 
     # Exchange the App credentials for an installation access token for one
     # account. Mirrors what actions/create-github-app-token does in the sweep.
@@ -51,13 +52,25 @@ BeforeAll {
             'User-Agent'           = 'Mainstay-IntegrationTest'
         }
 
-        $installation = Invoke-RestMethod -Method GET -Uri 'https://api.github.com/app/installations' `
-            -Headers $appHeaders -ErrorAction Stop |
-            Where-Object { $_.account.login -eq $Owner }
+        $installations = Invoke-RestMethod -Method GET -Uri 'https://api.github.com/app/installations' `
+            -Headers $appHeaders -ErrorAction Stop
+
+        # Match by account login, case-insensitively. The payload may be a single
+        # object or an array, so iterate explicitly rather than rely on Where-Object
+        # pipeline semantics, which differ when only one installation is returned.
+        $installation = $null
+        foreach ($candidate in @($installations)) {
+            if ($candidate.account.login -ieq $Owner) {
+                $installation = $candidate
+                break
+            }
+        }
 
         if (-not $installation) {
             throw "App is not installed on '$Owner'."
         }
+
+        Write-Verbose "Minting installation token for $Owner (installation id $($installation.id))"
 
         $tokenResponse = Invoke-RestMethod -Method POST `
             -Uri "https://api.github.com/app/installations/$($installation.id)/access_tokens" `
