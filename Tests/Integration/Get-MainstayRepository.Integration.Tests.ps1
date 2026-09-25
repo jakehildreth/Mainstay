@@ -67,7 +67,7 @@ BeforeAll {
     }
 }
 
-Describe 'Get-MainstayRepository integration' -Skip:(-not $script:Enabled) {
+Describe 'Get-MainstayRepository integration' -Skip:($env:MAINSTAY_INTEGRATION -ne '1') {
 
     Context 'Against the live GitHub API as the App' {
 
