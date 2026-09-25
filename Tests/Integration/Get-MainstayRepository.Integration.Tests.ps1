@@ -103,6 +103,12 @@ Describe 'Get-MainstayRepository integration' -Skip:($env:MAINSTAY_INTEGRATION -
             $token = Get-MainstayInstallationToken -ClientId $script:AppClientId `
                 -PrivateKeyPem $script:AppPrivateKey -Owner 'gilmourltd'
 
+            $raw = InModuleScope 'Mainstay' -Parameters @{ t = $token } {
+                param($t)
+                Invoke-MainstayApi -Token $t -Path 'orgs/gilmourltd/repos?per_page=100' -Paginate
+            }
+            Write-Host "RAW org repos count: $(@($raw).Count); names: $((@($raw) | ForEach-Object { $_.full_name }) -join ', ')"
+
             $repositories = @(InModuleScope 'Mainstay' -Parameters @{ t = $token } {
                 param($t)
                 Get-MainstayRepository -Token $t -Owner 'gilmourltd' -OwnerType Org
