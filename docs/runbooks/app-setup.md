@@ -37,6 +37,8 @@ On the App's settings page after creation:
 
 ## 3. Install the App on all three accounts
 
+The App must be **public** before the organizations are selectable. A private App installs only on the account that owns it, so the orgs will not appear in the install list. If you left the App private at creation, make it public first: App settings → **Advanced** → **Danger zone** → **Make public**. (Setting it to **Any account** at creation is the same thing; the step only bites if the App is still private.)
+
 From the App's settings page, **Install App** in the left rail. Install it three times, once per account, choosing **All repositories** each time:
 
 | Account | Type |
