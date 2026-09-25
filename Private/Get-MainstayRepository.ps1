@@ -93,18 +93,12 @@ function Get-MainstayRepository {
                 continue
             }
 
-            # The admin check only applies to the Org listing, where
-            # permissions.admin reflects the caller's rights on that repository.
-            # The App path (installation/repositories) is already scoped to what
-            # the installation may administer — it reports permissions.admin as
-            # false because an installation token has no 'admin' concept, so the
-            # check would wrongly drop every repository there.
-            if ($OwnerType -eq 'Org' -and
-                $null -ne $repository.permissions -and
-                -not $repository.permissions.admin) {
-                Write-Verbose "Skipping $($repository.full_name): not an admin"
-                continue
-            }
+            # No permissions.admin filter. The sweep authenticates as a GitHub App
+            # installation, and an installation token has no 'admin' concept: both
+            # installation/repositories and orgs/{org}/repos report permissions.admin
+            # as false for it, so filtering on admin would drop every repository.
+            # Authorization is already encoded by which repositories the endpoint
+            # returns for the installation, so presence in the list is the signal.
 
             if ($excluded.ContainsKey($repository.name.ToLowerInvariant())) {
                 Write-Verbose "Skipping $($repository.full_name): excluded by name"
