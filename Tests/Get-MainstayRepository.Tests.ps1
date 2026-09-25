@@ -171,10 +171,14 @@ Describe 'Get-MainstayRepository' {
         }
 
 
-        It 'Excludes org repositories where the caller is not an admin' {
+        It 'Includes org repositories regardless of the admin flag' {
+            # An App installation token reports permissions.admin as false on the
+            # org listing (no 'admin' concept), yet may administer the repository.
+            # Authorization is encoded by which repos the endpoint returns, so the
+            # admin flag must not filter.
             InModuleScope 'Mainstay' {
                 $result = Get-MainstayRepository -Token 'x' -Owner 'gilmourltd' -OwnerType Org
-                $result.FullName | Should -Not -Contain 'gilmourltd/read-only-thing'
+                $result.FullName | Should -Contain 'gilmourltd/read-only-thing'
                 $result.FullName | Should -Contain 'gilmourltd/product'
             }
         }
