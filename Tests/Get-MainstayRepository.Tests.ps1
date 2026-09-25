@@ -42,7 +42,7 @@ Describe 'Get-MainstayRepository' {
                             default_branch = 'main'; permissions = @{ admin = $false }
                         }
                     )
-                } -ParameterFilter { $Path -like 'users/jakehildreth/repos*' }
+                } -ParameterFilter { $Path -like 'user/repos*' }
 
                 Mock Invoke-MainstayApi { @() }
             }
@@ -111,22 +111,33 @@ Describe 'Get-MainstayRepository' {
 
         BeforeAll {
             InModuleScope 'Mainstay' {
-                Mock Invoke-MainstayApi { @() } -ParameterFilter { $Path -like 'users/jakehildreth/repos*' }
+                # The authenticated-user endpoint returns the caller's private
+                # repositories; users/{owner}/repos omits them for any caller
+                # that is not the owner. Under an App installation token the
+                # caller is the installation, so user/repos is the correct path.
+                Mock Invoke-MainstayApi { @() } -ParameterFilter { $Path -like 'user/repos*' }
                 Mock Invoke-MainstayApi { throw "unexpected path: $Path" }
             }
         }
 
-        It 'Queries the user repos endpoint for that owner' {
+        It 'Queries the authenticated user repos endpoint' {
             InModuleScope 'Mainstay' {
                 Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -OwnerType User | Out-Null
-                Should -Invoke Invoke-MainstayApi -Exactly 1 -ParameterFilter { $Path -like 'users/jakehildreth/repos*' }
+                Should -Invoke Invoke-MainstayApi -Exactly 1 -ParameterFilter { $Path -like 'user/repos*' }
             }
         }
 
-        It 'Never queries the authenticated-user or org endpoints' {
+        It 'Requests only repos the token owner owns' {
             InModuleScope 'Mainstay' {
                 Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -OwnerType User | Out-Null
-                Should -Invoke Invoke-MainstayApi -Exactly 0 -ParameterFilter { $Path -like 'user/repos*' }
+                Should -Invoke Invoke-MainstayApi -Exactly 1 -ParameterFilter { $Path -like '*type=owner*' }
+            }
+        }
+
+        It 'Never queries the public-user or org endpoints' {
+            InModuleScope 'Mainstay' {
+                Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -OwnerType User | Out-Null
+                Should -Invoke Invoke-MainstayApi -Exactly 0 -ParameterFilter { $Path -like 'users/*' }
                 Should -Invoke Invoke-MainstayApi -Exactly 0 -ParameterFilter { $Path -like 'orgs/*' }
             }
         }

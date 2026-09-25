@@ -58,8 +58,15 @@ function Get-MainstayRepository {
     )
 
     process {
+        # A user owner is listed from the authenticated endpoint user/repos,
+        # scoped to repos the token owner owns. users/{owner}/repos is wrong for
+        # a user: it omits private repositories for any caller that is not the
+        # owner, and under an App installation token the caller is the
+        # installation, so user/repos returns the installation's own repos.
+        # An organization owner is listed from orgs/{owner}/repos, which has no
+        # such gap.
         $source = switch ($OwnerType) {
-            'User' { "users/$Owner/repos?per_page=100" }
+            'User' { "user/repos?type=owner&per_page=100" }
             'Org'  { "orgs/$Owner/repos?per_page=100" }
         }
 
