@@ -69,3 +69,7 @@ For each org you may be redirected to that org's install page; as the org owner 
 ## If something is wrong
 
 A job that goes red after a previously green run means the key was revoked or the App uninstalled. See `docs/runbooks/app-key-compromise.md`.
+
+## Changing how the sweep talks to GitHub
+
+Before you merge any change to the code that calls the GitHub API (the paths in `Private/Invoke-MainstayApi.ps1` and `Private/Get-MainstayRepository.ps1`), the integration suite in `Tests/Integration` must pass on `main`. It calls the live API as the App installation, so it catches the cases the unit tests fake away — an endpoint an App token cannot call, or a private repository the App cannot see. Run it with **Actions > Tests > Run workflow**, or push to `main` and watch the Integration job.
