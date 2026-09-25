@@ -93,12 +93,26 @@ function Invoke-MainstayApi {
                 return $response
             }
 
-            $batch = @($response)
+            # installation/repositories wraps its items in a 'repositories' member
+            # and reports the total; plain collection endpoints return the page as a
+            # bare array. Detect the wrapped shape so both paginate correctly.
+            $items = $response
+            $total = $null
+            if ($response -and $response.PSObject.Properties['repositories'] -and $response.PSObject.Properties['total_count']) {
+                $items = $response.repositories
+                $total = $response.total_count
+            }
+
+            $batch = @($items)
             foreach ($item in $batch) {
                 $collected.Add($item)
             }
 
-            if ($batch.Count -lt $pageSize) {
+            if ($null -ne $total) {
+                if ($collected.Count -ge $total) {
+                    break
+                }
+            } elseif ($batch.Count -lt $pageSize) {
                 break
             }
 

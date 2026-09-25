@@ -42,7 +42,7 @@ Describe 'Get-MainstayRepository' {
                             default_branch = 'main'; permissions = @{ admin = $false }
                         }
                     )
-                } -ParameterFilter { $Path -like 'user/repos*' }
+                } -ParameterFilter { $Path -like 'installation/repositories*' }
 
                 Mock Invoke-MainstayApi { @() }
             }
@@ -84,10 +84,13 @@ Describe 'Get-MainstayRepository' {
             }
         }
 
-        It 'Excludes repositories where the caller is not an admin' {
+        It 'Includes repositories on the App path regardless of the admin flag' {
+            # installation/repositories reports permissions.admin as false for an
+            # installation token (no 'admin' concept), yet every repo it lists is
+            # one the App may administer. The User path must not filter on it.
             InModuleScope 'Mainstay' {
                 $result = Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -OwnerType User
-                $result.FullName | Should -Not -Contain 'jakehildreth/NotMine'
+                $result.FullName | Should -Contain 'jakehildreth/NotMine'
             }
         }
 
@@ -111,32 +114,26 @@ Describe 'Get-MainstayRepository' {
 
         BeforeAll {
             InModuleScope 'Mainstay' {
-                # The authenticated-user endpoint returns the caller's private
-                # repositories; users/{owner}/repos omits them for any caller
-                # that is not the owner. Under an App installation token the
-                # caller is the installation, so user/repos is the correct path.
-                Mock Invoke-MainstayApi { @() } -ParameterFilter { $Path -like 'user/repos*' }
+                # GitHub Apps cannot call user/repos (403 Resource not accessible
+                # by integration), and users/{owner}/repos omits private repos for
+                # any caller that is not the owner. The App's installation endpoint
+                # installation/repositories returns every repo it can see.
+                Mock Invoke-MainstayApi { @() } -ParameterFilter { $Path -like 'installation/repositories*' }
                 Mock Invoke-MainstayApi { throw "unexpected path: $Path" }
             }
         }
 
-        It 'Queries the authenticated user repos endpoint' {
+        It 'Queries the App installation repositories endpoint' {
             InModuleScope 'Mainstay' {
                 Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -OwnerType User | Out-Null
-                Should -Invoke Invoke-MainstayApi -Exactly 1 -ParameterFilter { $Path -like 'user/repos*' }
+                Should -Invoke Invoke-MainstayApi -Exactly 1 -ParameterFilter { $Path -like 'installation/repositories*' }
             }
         }
 
-        It 'Requests only repos the token owner owns' {
+        It 'Never queries user-scoped or org endpoints a GitHub App cannot use' {
             InModuleScope 'Mainstay' {
                 Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -OwnerType User | Out-Null
-                Should -Invoke Invoke-MainstayApi -Exactly 1 -ParameterFilter { $Path -like '*type=owner*' }
-            }
-        }
-
-        It 'Never queries the public-user or org endpoints' {
-            InModuleScope 'Mainstay' {
-                Get-MainstayRepository -Token 'x' -Owner 'jakehildreth' -OwnerType User | Out-Null
+                Should -Invoke Invoke-MainstayApi -Exactly 0 -ParameterFilter { $Path -like 'user/repos*' }
                 Should -Invoke Invoke-MainstayApi -Exactly 0 -ParameterFilter { $Path -like 'users/*' }
                 Should -Invoke Invoke-MainstayApi -Exactly 0 -ParameterFilter { $Path -like 'orgs/*' }
             }
@@ -154,6 +151,11 @@ Describe 'Get-MainstayRepository' {
                             fork = $false; archived = $false; private = $false
                             default_branch = 'main'; permissions = @{ admin = $true }
                         }
+                        [PSCustomObject]@{
+                            full_name = 'gilmourltd/read-only-thing'; name = 'read-only-thing'
+                            fork = $false; archived = $false; private = $false
+                            default_branch = 'main'; permissions = @{ admin = $false }
+                        }
                     )
                 } -ParameterFilter { $Path -like 'orgs/gilmourltd/repos*' }
                 Mock Invoke-MainstayApi { throw "unexpected path: $Path" }
@@ -168,6 +170,14 @@ Describe 'Get-MainstayRepository' {
             }
         }
 
+
+        It 'Excludes org repositories where the caller is not an admin' {
+            InModuleScope 'Mainstay' {
+                $result = Get-MainstayRepository -Token 'x' -Owner 'gilmourltd' -OwnerType Org
+                $result.FullName | Should -Not -Contain 'gilmourltd/read-only-thing'
+                $result.FullName | Should -Contain 'gilmourltd/product'
+            }
+        }
         It 'Never queries the user or authenticated-user endpoints' {
             InModuleScope 'Mainstay' {
                 Get-MainstayRepository -Token 'x' -Owner 'gilmourltd' -OwnerType Org | Out-Null
