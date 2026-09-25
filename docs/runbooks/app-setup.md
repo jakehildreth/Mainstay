@@ -7,7 +7,7 @@ The code side is already merged: the workflow mints a one-hour installation toke
 ## 1. Create the App
 
 1. Open https://github.com/settings/apps/new (your avatar → **Settings → Developer settings → GitHub Apps → New GitHub App**).
-2. **GitHub App name:** `Mainstay` (must be unique across GitHub; add a suffix if taken).
+2. **GitHub App name:** `Mainstay branch protection`. The name must be unique across GitHub — the bare name `Mainstay` is taken by the account `@mainstay`, so use this. The workflow keys off the Client ID and private key, not the name, so the exact wording does not matter.
 3. **Homepage URL:** `https://github.com/jakehildreth/Mainstay`.
 4. **Webhook:** untick **Active**. The App reacts to nothing; it is only a credential.
 5. **Repository permissions:**
