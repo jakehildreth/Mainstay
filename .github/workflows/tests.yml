@@ -1,0 +1,63 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Unit tests need no permissions. The integration job mints an App token from a
+# stored secret; it never uses the workflow token, so it is granted nothing.
+permissions: {}
+
+concurrency:
+  group: mainstay-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Run unit tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Top-level *.Tests.ps1 only; Tests/Integration is the live suite.
+          $unitTests = Get-ChildItem ./Tests/*.Tests.ps1
+          $result = Invoke-Pester -Path $unitTests.FullName -PassThru
+          if ($result.FailedCount -gt 0) {
+              exit 1
+          }
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    # Only run on trusted code. A pull_request could carry a modified test that
+    # exfiltrates the App key, so the live test never runs for PRs — PRs get the
+    # unit job only. Push to main and manual dispatch run trusted code.
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Run integration tests against the live API
+        shell: pwsh
+        env:
+          MAINSTAY_INTEGRATION: '1'
+          MAINSTAY_APP_CLIENT_ID: ${{ vars.MAINSTAY_APP_CLIENT_ID }}
+          MAINSTAY_APP_PRIVATE_KEY: ${{ secrets.MAINSTAY_APP_PRIVATE_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if ([string]::IsNullOrWhiteSpace($env:MAINSTAY_APP_PRIVATE_KEY)) {
+              throw 'MAINSTAY_APP_PRIVATE_KEY secret is not set.'
+          }
+
+          $result = Invoke-Pester -Path ./Tests/Integration -PassThru
+          if ($result.FailedCount -gt 0) {
+              exit 1
+          }
