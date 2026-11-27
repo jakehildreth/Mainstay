@@ -184,6 +184,41 @@ Describe 'Invoke-MainstaySweep' {
                 $result | Should -HaveCount 2
             }
         }
+}
+
+    Context 'When the owner is a free org and the repository is private' {
+
+        BeforeAll {
+            InModuleScope 'Mainstay' {
+                Mock Get-MainstayRepository {
+                    @([PSCustomObject]@{ FullName = 'gilmourltd/product'; Visibility = 'private' })
+                }
+                Mock Test-MainstayProtection { throw 'Upgrade to GitHub Pro or make this repository public to enable this feature.' }
+                Mock Test-MainstayRepositoryHasBranch { $true }
+                Mock New-MainstayProtection { }
+            }
+        }
+
+        It 'Skips the repository instead of failing' {
+            InModuleScope 'Mainstay' {
+                $result = Invoke-MainstaySweep -Token 'x' -Owner 'gilmourltd' -OwnerType Org -ErrorAction SilentlyContinue
+                $result.Action | Should -Be 'Skipped'
+            }
+        }
+
+        It 'Gives the free plan as the reason' {
+            InModuleScope 'Mainstay' {
+                $result = Invoke-MainstaySweep -Token 'x' -Owner 'gilmourltd' -OwnerType Org -ErrorAction SilentlyContinue
+                $result.Reason | Should -Match 'Free plan'
+            }
+        }
+
+        It 'Does not attempt to create a ruleset' {
+            InModuleScope 'Mainstay' {
+                Invoke-MainstaySweep -Token 'x' -Owner 'gilmourltd' -OwnerType Org -ErrorAction SilentlyContinue | Out-Null
+                Should -Invoke New-MainstayProtection -Exactly 0
+            }
+        }
     }
 
     Context 'When redaction is requested' {
