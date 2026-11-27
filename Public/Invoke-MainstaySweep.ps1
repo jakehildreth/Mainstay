@@ -121,10 +121,27 @@ function Invoke-MainstaySweep {
             $reason = ''
 
             try {
-                $isProtected = Test-MainstayProtection -Token $Token `
-                    -FullName $repository.FullName -RulesetName $RulesetName
+                # A private repository in a free organization refuses the rulesets
+                # read with 403 "Upgrade to GitHub Pro...". That is a plan limit, not
+                # a sweep failure, so skip it here before any branch or write call.
+                # Matching on the message text is the only signal: GitHub returns the
+                # same 403 status for it as for a genuine permission error.
+                $freePlanLimited = $false
+                try {
+                    $isProtected = Test-MainstayProtection -Token $Token `
+                        -FullName $repository.FullName -RulesetName $RulesetName
+                } catch {
+                    if ($_.Exception.Message -match 'Upgrade to GitHub Pro') {
+                        $freePlanLimited = $true
+                    } else {
+                        throw
+                    }
+                }
 
-                if ($isProtected) {
+                if ($freePlanLimited) {
+                    $action = 'Skipped'
+                    $reason = 'Private repository on the GitHub Free plan; branch protection is unavailable'
+                } elseif ($isProtected) {
                     $action = 'AlreadyProtected'
                     $reason = 'Active ruleset present'
                 } elseif (-not (Test-MainstayRepositoryHasBranch -Token $Token -FullName $repository.FullName)) {
